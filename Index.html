@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tabla de Pagos</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        #tablaPagos {
+            border-collapse: collapse;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+        #tablaPagos th, #tablaPagos td {
+            border: 1px solid #ccc;
+            padding: 10px;
+            text-align: center;
+        }
+        .nombre {
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .pago:checked + .debe {
+            pointer-events: none;
+            opacity: 0.5;
+        }
+        button {
+            padding: 10px;
+            margin-right: 10px;
+            cursor: pointer;
+        }
+        #valorRifa {
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Tabla de Pagos</h1>
+    
+    <label for="valorRifa">Valor de la rifa: </label>
+    <input type="number" id="valorRifa" min="0" step="0.01">
+    
+    <table id="tablaPagos">
+        <thead>
+            <tr>
+                <th>Número</th>
+                <th>Nombre</th>
+                <th>Pagado</th>
+                <th>Debe</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Las filas se generarán dinámicamente con JavaScript -->
+        </tbody>
+    </table>
+    
+    <p>Total recaudado: <span id="totalRecaudado">0</span></p>
+    
+    <button id="exportarButton">Exportar a Excel</button>
+    <button id="guardarButton">Guardar Datos</button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.16.9/xlsx.full.min.js"></script>
+    <script>
+        const tablaPagos = document.getElementById('tablaPagos');
+        const tbody = tablaPagos.querySelector('tbody');
+        const exportarButton = document.getElementById('exportarButton');
+        const guardarButton = document.getElementById('guardarButton');
+        const valorRifaInput = document.getElementById('valorRifa');
+        const totalRecaudadoSpan = document.getElementById('totalRecaudado');
+
+        let datos = [];
+
+        function crearFila(numero, nombre = '', pagado = false, debe = false) {
+            const fila = document.createElement('tr');
+            fila.innerHTML = `
+                <td>${numero}</td>
+                <td><input type="text" class="nombre" value="${nombre}"></td>
+                <td><input type="checkbox" class="pago" ${pagado ? 'checked' : ''}></td>
+                <td><input type="checkbox" class="debe" ${debe ? 'checked' : ''} ${pagado ? 'disabled' : ''}></td>
+            `;
+            return fila;
+        }
+
+        function inicializarTabla() {
+            for (let i = 0; i < 100; i++) {
+                const numero = i.toString().padStart(2, '0');
+                tbody.appendChild(crearFila(numero));
+            }
+        }
+
+        function actualizarTotalRecaudado() {
+            const valorRifa = parseFloat(valorRifaInput.value) || 0;
+            const pagados = document.querySelectorAll('.pago:checked').length;
+            const total = valorRifa * pagados;
+            totalRecaudadoSpan.textContent = total.toFixed(2);
+        }
+
+        function manejarCambioPago(event) {
+            const fila = event.target.closest('tr');
+            const debeCheckbox = fila.querySelector('.debe');
+            if (event.target.checked) {
+                debeCheckbox.disabled = true;
+                debeCheckbox.checked = false;
+                fila.style.backgroundColor = '#90ee90';
+            } else {
+                debeCheckbox.disabled = false;
+                fila.style.backgroundColor = '';
+            }
+            actualizarTotalRecaudado();
+        }
+
+        function exportarExcel() {
+            const datos = obtenerDatosTabla();
+            const workbook = XLSX.utils.book_new();
+            const worksheet = XLSX.utils.json_to_sheet(datos);
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Pagos');
+            XLSX.writeFile(workbook, 'Pagos.xlsx');
+        }
+
+        function obtenerDatosTabla() {
+            return Array.from(tbody.rows).map(fila => ({
+                numero: fila.cells[0].textContent,
+                nombre: fila.cells[1].querySelector('input').value,
+                pagado: fila.cells[2].querySelector('input').checked,
+                debe: fila.cells[3].querySelector('input').checked
+            }));
+        }
+
+        async function guardarDatos() {
+            const datos = obtenerDatosTabla();
+            const datosJSON = JSON.stringify(datos);
+            
+            try {
+                // Renombrar el archivo existente
+                const response = await fetch('renombrar.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ accion: 'renombrar' }),
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Error al renombrar el archivo');
+                }
+                
+                // Guardar los nuevos datos
+                const saveResponse = await fetch('guardar_datos.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: datosJSON,
+                });
+                
+                if (!saveResponse.ok) {
+                    throw new Error('Error al guardar los datos');
+                }
+                
+                alert('Datos guardados correctamente');
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error al guardar los datos');
+            }
+        }
+
+        async function cargarDatos() {
+            try {
+                const response = await fetch('datosback.json');
+                if (!response.ok) {
+                    throw new Error('No se pudo cargar el archivo');
+                }
+                const datos = await response.json();
+                tbody.innerHTML = '';
+                datos.forEach(dato => {
+                    tbody.appendChild(crearFila(dato.numero, dato.nombre, dato.pagado, dato.debe));
+                });
+                actualizarTotalRecaudado();
+            } catch (error) {
+                console.error('Error al cargar datos:', error);
+                inicializarTabla();
+            }
+        }
+
+        // Cargar datos al iniciar la página
+        window.addEventListener('load', cargarDatos);
+
+        valorRifaInput.addEventListener('input', actualizarTotalRecaudado);
+        tbody.addEventListener('change', event => {
+            if (event.target.classList.contains('pago')) {
+                manejarCambioPago(event);
+            }
+        });
+        exportarButton.addEventListener('click', exportarExcel);
+        guardarButton.addEventListener('click', guardarDatos);
+    </script>
+</body>
+</html>
